@@ -13,6 +13,7 @@ err_msg_exit() {
 
 type shazam >/dev/null || err_msg_exit "'shazam' not found."
 type jq >/dev/null || err_msg_exit "'jq' not found."
+type dunstify >/dev/null || err_msg_exit "'dunstify' not found."
 
 COVERT_ART_FILE="/tmp/shazam/coverart.jpg"
 
@@ -24,12 +25,18 @@ if ! ffmpeg -sources pulse 2>/dev/null | grep -q "$SOURCE"; then
     exit 1
 fi
 
-notify-send -i "audio-input-microphone" -t 5000 "Shazam" "Recording audio for 5s."
+send_notification_for_duration() {
+	for i in {1..5}; do # 5 seconds duration
+		dunstify -h string:x-dunst-stack-tag:shazam -a "Shazam" -h "int:value:$(echo "scale=2; $i/5*100" | bc -l)" "Shazam" "Recording audio for 5s"
+		sleep 1
+	done
+}
+send_notification_for_duration &
 RESPONSE="$(shazam -s "$SOURCE")"
 
 N_MATCHES="$(echo "$RESPONSE" | jq -r '.matches | length')"
 if [ "$N_MATCHES" = 0 ]; then
-    notify-send -i "music" "Shazam" "Failed to identify song."
+    dunstify -h string:x-dunst-stack-tag:shazam -a "Shazam" "Shazam" "Failed to identify song."
     exit 2
 fi
 
@@ -39,20 +46,16 @@ COVER_ART_URL="$(echo "$RESPONSE" | jq -r ".track.images.coverart")"
 
 curl --silent "$COVER_ART_URL" -o "$COVERT_ART_FILE"
 
-if type dunstify >/dev/null; then
-    case "$(dunstify -i "$COVERT_ART_FILE" \
-        --action="apple music,apple music" \
-        --action="youtube,youtube" \
-        "$ARTIST" "$TITLE")" in
-    "apple music")
-        AM_LINK="$(echo "$RESPONSE" | jq -r ".track.hub.options[0].actions[0].uri")"]
-        xdg-open "$AM_LINK"
-        ;;
-    "youtube")
-        YT_LINK="$(echo "$RESPONSE" | jq -r '.track.sections | map(select(.type == "VIDEO"))[0].youtubeurl.actions[0].uri')"
-        xdg-open "$YT_LINK"
-        ;;
-    esac
-else
-    notify-send -i "$COVERT_ART_FILE" "$ARTIST" "$TITLE"
-fi
+case "$(dunstify -h string:x-dunst-stack-tag:shazam -a "Shazam" -i "$COVERT_ART_FILE" \
+	--action="apple music,apple music" \
+	--action="youtube,youtube" \
+	"$ARTIST" "$TITLE")" in
+	"apple music")
+	AM_LINK="$(echo "$RESPONSE" | jq -r ".track.hub.options[0].actions[0].uri")"]
+	xdg-open "$AM_LINK"
+	;;
+"youtube")
+	YT_LINK="$(echo "$RESPONSE" | jq -r '.track.sections | map(select(.type == "VIDEO"))[0].youtubeurl.actions[0].uri')"
+	xdg-open "$YT_LINK"
+	;;
+esac
